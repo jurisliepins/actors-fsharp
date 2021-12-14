@@ -9,53 +9,53 @@ module Program =
         | Pull of AsyncReplyChannel<'a option>
         | Push of 'a * AsyncReplyChannel<unit>
 
-    let pullMessage replyChannel = Pull replyChannel
-    let pushMessage value replyChannel = Push (value, replyChannel)
+    let pull replyChannel = Pull replyChannel
+    let push value replyChannel = Push (value, replyChannel)
     
-    let queue collection (inbox: Actor<QueueMessage<'a>>) =
-        let queue = Queue<_>(collection)
-        let rec await () =
+    let queue (queue: Queue<_>) (inbox: Actor<_>) =
+        let rec await (queue: Queue<_>) =
             async {
                 match! inbox.Receive() with
                 | Pull replyChannel -> replyChannel.Reply(queue.Pull())
                 | Push (value, replyChannel) -> replyChannel.Reply(queue.Push value)
-                return! await ()
+                return! await queue
             }
-        await ()
+        await queue
             
-    let worker handleSome handleNone (queue: Actor<QueueMessage<_>>) (_: Actor<QueueMessage<_>>) =
+    let worker handleSome handleNone queueRef (inbox: Actor<_>) =
         let rec work () =
             async {
-                match! queue <!! pullMessage  with
+                match! queueRef <!! pull  with
                 | Some value ->
-                    do! handleSome value queue
+                    do! handleSome value queueRef
                     return! work ()
                 | None ->
-                    do! handleNone queue
+                    do! handleNone queueRef
             }
         work ()
     
-    let handleSome idx value queue =             
+    let handleSome idx value queueRef =             
         async {
             printfn $"Worker %d{idx} pulled work %d{value}"
             do! Async.Sleep value
             if Random().Next(0, 10) > 8 then
-                do! queue <!! (pushMessage value)
+                do! queueRef <!! (push value)
                 printfn $"Worker %d{idx} pushing work %d{value} back"
         }
         
-    let handleNone idx queue =
+    let handleNone idx queueRef =
         async {
             printfn $"Worker %d{idx} done"                    
         }
     
     [<EntryPoint>]
     let main args =
-        use queue = spawn (queue [| for idx in 1..1_000 do idx |])
+        use queueRef = queue (Queue([| for idx in 1..1_000 do idx |])) |> spawn 
+        
         for idx in 1..50 do
             let handleSome = handleSome idx
             let handleNone = handleNone idx
-            let worker = spawn (worker handleSome handleNone queue)
+            let workerRef = worker handleSome handleNone queueRef |> spawn 
             ()
             
         while true do ()

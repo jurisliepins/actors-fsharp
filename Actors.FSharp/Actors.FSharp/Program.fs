@@ -1,62 +1,108 @@
 namespace Actors.FSharp
 
-open System
-
 module Program =
     open Actors.FSharp.Actor
-    
-    type QueueMessage<'a> =
-        | Pull of AsyncReplyChannel<'a option>
-        | Push of 'a * AsyncReplyChannel<unit>
 
-    let pull replyChannel = Pull replyChannel
-    let push value replyChannel = Push (value, replyChannel)
-    
-    let queue (queue: Queue<_>) (inbox: Actor<_>) =
-        let rec await (queue: Queue<_>) =
+    let sinkActor fn (inbox: Actor<_>) =
+        let rec receive () =
             async {
-                match! inbox.Receive() with
-                | Pull replyChannel -> replyChannel.Reply(queue.Pull())
-                | Push (value, replyChannel) -> replyChannel.Reply(queue.Push value)
-                return! await queue
+                let! value = inbox.Receive()
+                fn value 
+                return! receive ()
             }
-        await queue
-            
-    let worker handleSome handleNone queueRef (inbox: Actor<_>) =
-        let rec work () =
-            async {
-                match! queueRef <!! pull  with
-                | Some value ->
-                    do! handleSome value queueRef
-                    return! work ()
-                | None ->
-                    do! handleNone queueRef
-            }
-        work ()
-    
-    let handleSome idx value queueRef =             
-        async {
-            printfn $"Worker %d{idx} pulled work %d{value}"
-            do! Async.Sleep value
-            if Random().Next(0, 10) > 8 then
-                do! queueRef <!! (push value)
-                printfn $"Worker %d{idx} pushing work %d{value} back"
-        }
+        receive ()
         
-    let handleNone idx queueRef =
-        async {
-            printfn $"Worker %d{idx} done"                    
-        }
+    let convertActor fn (outputRef: Actor<_>) (inbox: Actor<_>) =
+        let rec receive () =
+            async {
+                let! value = inbox.Receive()
+                outputRef <! fn value
+                return! receive ()
+            }
+        receive ()
+        
+    let statefulSinkActor fn initialState (inbox: Actor<_>) =
+        let rec receive state =
+            async {
+                let! value = inbox.Receive()
+                let nextState = fn value state
+                return! receive nextState
+            }
+        receive initialState
+        
+    let statefulConvertActor fn initialState (outputRef: Actor<_>) (inbox: Actor<_>) =
+        let rec receive state =
+            async {
+                let! value = inbox.Receive()
+                let result, nextState = fn value state
+                outputRef <! result
+                return! receive nextState
+            }
+        receive initialState
     
+    let childSinkActor fn (parent: Actor<_>) (inbox: Actor<_>) =
+        let rec receive () =
+            async {
+                let! value = inbox.Receive()
+                fn parent value 
+                return! receive ()
+            }
+        receive ()
+        
+    let statefulConverterSupervisor fn child (inbox: Actor<_>) =
+        let rec receive state =
+            async {
+                let childRef = 
+                    match state with
+                    | Some state -> state
+                    | None -> child |> spawnChild inbox
+                let! value = inbox.Receive()
+                childRef <! (fn value)
+                return! receive (Some childRef)
+            }
+        receive None
+    
+    // TODO: Add last type under - https://mikhail.io/2016/03/functional-actor-patterns-with-akkadotnet-and-fsharp/ !    
+        
     [<EntryPoint>]
     let main args =
-        use queueRef = queue (Queue([| for idx in 1..1_000 do idx |])) |> spawn 
+//        // Sink Actor
+        let printRef = sinkActor (printfn "%A")
+                       |> spawn  
+//        printRef <! 1
+//            
+//        // Converter Actor
+        let squareRef = convertActor (fun value -> value * value) printRef
+                        |> spawn
+//        squareRef <! 2
+//        
+//        // Stateful Sink Actor
+        let sumRef = statefulSinkActor (fun value state ->
+                                            printfn "%A + %A = %A" value state (value + state)
+                                            value + state)
+                                        0
+                     |> spawn
+//        sumRef <! 1
+//        sumRef <! 2
+//        sumRef <! 3
         
-        for idx in 1..50 do
-            let handleSome = handleSome idx
-            let handleNone = handleNone idx
-            let workerRef = worker handleSome handleNone queueRef |> spawn 
-            ()
-            
+        // Stateful Converter Actor
+        let sumStateRef = statefulConvertActor (fun (value: int) (state: int) ->
+                                                    ((value + state), (value + state)))
+                                                    0
+                                                    printRef
+                          |> spawn
+        // Useful - https://stackoverflow.com/questions/29166468/f-child-agent-is-there-a-this-pointer.
+        let squareWithChildRef = statefulConverterSupervisor
+                                     (fun value -> value * value)
+                                     (childSinkActor (fun parent value ->
+                                                        printfn "%A" parent
+                                                        printfn "%A" value))
+                                 |> spawn
+        
+//        squareWithChildRef <! 1
+//        squareWithChildRef <! 2
+//        squareWithChildRef <! 3
+        
         while true do ()
         0

@@ -7,7 +7,10 @@ type Actor<'a> private (mailbox: MailboxProcessor<'a>) =
         member this.Dispose() = (mailbox :> IDisposable).Dispose() 
     
     member _.Receive() = mailbox.Receive()
+    member _.Receive(timeout) = mailbox.Receive(timeout)
+    
     member _.Scan(scanner) = mailbox.Scan(scanner)
+    
     member _.Post(message: 'a) = mailbox.Post(message)
     member _.PostAndReply(buildMessage: AsyncReplyChannel<'Reply> -> 'a) : 'Reply = mailbox.PostAndReply(buildMessage)
     member _.PostAndAsyncReply(buildMessage: AsyncReplyChannel<'Reply> -> 'a) : Async<'Reply> = mailbox.PostAndAsyncReply(buildMessage)
@@ -21,3 +24,4 @@ type Actor<'a> private (mailbox: MailboxProcessor<'a>) =
     
 module Actor =
     let spawn (body: Actor<'a> -> Async<unit>) : Actor<'a> = Actor<_>.Start(body)
+    let spawnChild (parent: Actor<_>) (body: Actor<_> -> Actor<'a> -> Async<unit>) : Actor<'a> = Actor<_>.Start(body parent)

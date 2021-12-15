@@ -10,6 +10,7 @@ type Actor<'a> private (mailbox: MailboxProcessor<'a>) =
     member _.Receive(timeout) = mailbox.Receive(timeout)
     
     member _.Scan(scanner) = mailbox.Scan(scanner)
+    member _.Scan(scanner, timeout) = mailbox.Scan(scanner, timeout)
     
     member _.Post(message: 'a) = mailbox.Post(message)
     member _.PostAndReply(buildMessage: AsyncReplyChannel<'Reply> -> 'a) : 'Reply = mailbox.PostAndReply(buildMessage)

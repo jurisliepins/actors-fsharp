@@ -7,7 +7,7 @@ module AkkaTcp =
     open Akka.FSharp
     open Akka.IO
     
-    let baseName = "bittorrent-fsharp"
+    let baseName = "actors-fsharp"
     let systemName = $"%s{baseName}-system"
     let listenerName = $"%s{baseName}-listener"
     let listenerConnectionName endpoint = $"%s{baseName}-listener-connection-%A{endpoint}"
@@ -40,8 +40,7 @@ module AkkaTcp =
                             logDebugf mailbox $"Bound to %A{bound.LocalAddress}"
                             
                         | TcpConnected connected ->
-                            let connection = spawnConnected connected mailbox 
-                            mailbox.Sender() <! Tcp.Register connection
+                            mailbox.Sender() <! Tcp.Register (spawnConnected connected mailbox)
                             logDebugf mailbox $"New connection %A{connected.RemoteAddress}"
                         
                         | message ->
@@ -80,7 +79,7 @@ module AkkaTcp =
                             | Some (_, connected) ->
                                 logDebugf mailbox $"Closed %A{connected.RemoteAddress}"
                             | None ->
-                                logDebugf mailbox $"Closed before a connection was established (shouldn't happen)"
+                                logDebugf mailbox "Closed before a connection was established (shouldn't happen)"
                             return! receive state
                             
                         | TcpPeerClosed peerClosed ->
@@ -88,7 +87,7 @@ module AkkaTcp =
                             | Some (_, connected) ->
                                 logDebugf mailbox $"Peer closed %A{connected.RemoteAddress}"
                             | None ->
-                                logDebugf mailbox $"Peer closed before a connection was established (shouldn't happen)"
+                                logDebugf mailbox "Peer closed before a connection was established (shouldn't happen)"
                             return! receive state
                             
                         | message ->

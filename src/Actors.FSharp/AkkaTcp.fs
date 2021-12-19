@@ -15,19 +15,19 @@ module AkkaTcp =
     
     let config =
         @"akka {
-            stdout-loglevel = ""DEBUG""
             loglevel = ""DEBUG""
         }"
 
     let system = System.create systemName (Configuration.parse config)
     
-    let private (|TcpBound|TcpConnected|TcpReceived|TcpClosed|TcpPeerClosed|TcpUnknown|) (message: obj) =
+    let private (|TcpBound|TcpConnected|TcpReceived|TcpClosed|TcpPeerClosed|TcpCommandFailed|TcpUnknown|) (message: obj) =
         match message with
-        | :? Tcp.Bound      as bound      -> TcpBound      bound
-        | :? Tcp.Connected  as connected  -> TcpConnected  connected 
-        | :? Tcp.Received   as received   -> TcpReceived   received
-        | :? Tcp.Closed     as closed     -> TcpClosed     closed
-        | :? Tcp.PeerClosed as peerClosed -> TcpPeerClosed peerClosed
+        | :? Tcp.Bound         as value -> TcpBound         value
+        | :? Tcp.Connected     as value -> TcpConnected     value 
+        | :? Tcp.Received      as value -> TcpReceived      value
+        | :? Tcp.Closed        as value -> TcpClosed        value
+        | :? Tcp.PeerClosed    as value -> TcpPeerClosed    value
+        | :? Tcp.CommandFailed as value -> TcpCommandFailed value
         | _ -> TcpUnknown
 
     let run () =
@@ -42,6 +42,9 @@ module AkkaTcp =
                         | TcpConnected connected ->
                             mailbox.Sender() <! Tcp.Register (spawnConnected connected mailbox)
                             logDebugf mailbox $"New connection %A{connected.RemoteAddress}"
+                        
+                        | TcpCommandFailed commandFailed ->
+                            logDebugf mailbox $"Command failed with %A{commandFailed.Cmd.FailureMessage}"
                         
                         | message ->
                             logDebugf mailbox $"Unhandled message %A{message} in %A{mailbox.Self.Path}"
@@ -89,6 +92,10 @@ module AkkaTcp =
                             | None ->
                                 logDebugf mailbox "Peer closed before a connection was established (shouldn't happen)"
                             return! receive state
+                        
+                        | TcpCommandFailed commandFailed ->
+                            logDebugf mailbox $"Command failed with %A{commandFailed.Cmd.FailureMessage}"
+                            return! receive state
                             
                         | message ->
                             logDebugf mailbox $"Unhandled message %A{message} in %A{mailbox.Self.Path}"
@@ -118,6 +125,9 @@ module AkkaTcp =
                                     
                                 | TcpPeerClosed peerClosed ->
                                     logDebugf mailbox $"Peer closed %A{connected.RemoteAddress}"
+                                
+                                | TcpCommandFailed commandFailed ->
+                                    logDebugf mailbox $"Command failed with %A{commandFailed.Cmd.FailureMessage}"
                                 
                                 | message ->
                                     logDebugf mailbox $"Unhandled message %A{message} in %A{mailbox.Self.Path}"

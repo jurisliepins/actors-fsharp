@@ -6,9 +6,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Queue.fs" />
-        <Compile Include="Actor.fs" />
+        <Compile Include="Vanilla.fs" />
         <Compile Include="Akka.fs" />
+        <Compile Include="AkkaTcp.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

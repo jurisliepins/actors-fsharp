@@ -5,4 +5,4 @@ open Actors.FSharp
 module Program =
     [<EntryPoint>]
     let main _ =
-        AkkaTcp.run()
+        AkkaCoordinator.run()

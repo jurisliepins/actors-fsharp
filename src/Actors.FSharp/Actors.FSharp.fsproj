@@ -8,6 +8,7 @@
     <ItemGroup>
         <Compile Include="Vanilla.fs" />
         <Compile Include="Akka.fs" />
+        <Compile Include="AkkaCoordinator.fs" />
         <Compile Include="AkkaTcp.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>

@@ -32,30 +32,32 @@ module AkkaCoordinator =
         let coordinator = 
             spawnOpt system coordinatorName
                 (fun (mailbox: Actor<CoordinatorMessage<int>>) ->
-                    let rec iterate (work: ConcurrentBag<_>) = actor {
+                    let rec iterate (incomplete: ConcurrentBag<_>) (complete: ConcurrentBag<_>) = actor {
                         match! mailbox.Receive() with
                         | Request request ->
                             logDebugf mailbox $"Request %A{request}"
                             match request with
-                            | _ when request = work.Count ->
-                                for value in work do
+                            | _ when incomplete.Count < complete.Count ->
+                                for value in incomplete do
                                     mailbox.Sender() <! ResponsePriority (Some value)
                             | _ -> 
-                                match work.TryTake() with
+                                match incomplete.TryTake() with
                                 | true, value ->
                                     mailbox.Sender() <! Response (Some value)
                                 | _ ->
                                     logDebugf mailbox $"Nothing to take"
                         | Processed value ->
-                            logDebugf mailbox $"Processed %A{value}"
-                        return! iterate work                        
+                            logDebugf mailbox $"Processed %A{mailbox.Sender().Path} %A{value}"
+                            complete.Add value
+                        return! iterate incomplete complete                       
                     }
-                    iterate (ConcurrentBag<_>([| for idx in 1..10 do yield idx |])))
+                    iterate (ConcurrentBag<_>([| for idx in 1..10 do yield idx |])) (ConcurrentBag<_>()))
                 [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]    
         let workers =
             [for idx in 1..5 do
                 spawnOpt system (workerName idx)
                     (fun (mailbox: Actor<WorkerMessage<int option>>) ->
+                        // TODO: Figure out how to short-circuit when a different worker already processed the same work! 
                         let rec iterate () = actor {
                             match! mailbox.Receive() with
                             | Response response ->

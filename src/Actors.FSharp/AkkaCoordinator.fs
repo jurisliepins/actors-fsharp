@@ -82,7 +82,7 @@ module AkkaCoordinator =
                                 match response with
                                 | Some value ->
 //                                    logDebugf mailbox $"Processing value %A{value}"
-                                    Async.Sleep 5000 |> Async.RunSynchronously
+                                    Async.Sleep (Random().Next(1000, 10_000)) |> Async.RunSynchronously
                                     coordinator <! Processed value
                                     coordinator <! Request idx
                                 | None ->

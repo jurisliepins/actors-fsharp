@@ -70,10 +70,10 @@ module AkkaCoordinator =
                                 ()
                         return! iterate incomplete processing                       
                     }
-                    iterate (ConcurrentBag<_>([| for idx in 1..10 do yield idx |])) (ConcurrentSet<_>()))
+                    iterate (ConcurrentBag<_>([| for idx in 1..1_000 do yield idx |])) (ConcurrentSet<_>()))
                 [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]    
         let workers =
-            [for idx in 1..5 do
+            [for idx in 1..50 do
                 spawnOpt system (workerName idx)
                     (fun (mailbox: Actor<WorkerMessage<int>>) ->
                         let rec iterate () = actor {
@@ -85,10 +85,10 @@ module AkkaCoordinator =
                                     Async.Sleep (Random().Next(1000, 10_000)) |> Async.RunSynchronously
                                     coordinator <! Processed value
                                     coordinator <! Request idx
+                                    return! iterate ()
                                 | None ->
 //                                    logDebugf mailbox "Done"
                                     ()
-                            return! iterate ()
                         }
                         iterate (coordinator <! Request idx))
                     [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]

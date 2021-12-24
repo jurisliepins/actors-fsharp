@@ -11,10 +11,10 @@ module AkkaCoordinator =
     type CoordinatorMessage =
         // TODO: Add a Return of int for failed work!
         | Request
-        | Processed of int
+        | Processed of KeyValuePair<int, int>
         
     type WorkerMessage =
-        | Response of int option
+        | Response of KeyValuePair<int, int> option
     
     let run () =
         let baseName = "akka-coordinator-fsharp"
@@ -33,9 +33,9 @@ module AkkaCoordinator =
         let coordinator = 
             spawnOpt system coordinatorName
                 (fun (mailbox: Actor<CoordinatorMessage>) ->
-                    let rec iterate (incomplete: Queue<_>) (processing: HashSet<_>) = actor {
+                    let rec iterate (incomplete: Queue<KeyValuePair<_, _>>) (processing: Dictionary<_, _>) = actor {
                         match! mailbox.Receive() with
-                        | Request _ ->
+                        | Request ->
 //                            logDebugf mailbox $"Request from %A{request}"
                             match incomplete with
                             | _ when incomplete.Count < 1 ->
@@ -43,30 +43,30 @@ module AkkaCoordinator =
                                 mailbox.Sender() <! Response (Seq.tryHead processing)
                             | _ ->
 //                                logDebugf mailbox "Taking from incomplete collection"
-                                let value = incomplete.Dequeue()
-                                match processing.Add value with
+                                let kv = incomplete.Dequeue()
+                                match processing.TryAdd (kv.Key, kv.Value) with
                                 | true ->
-                                    mailbox.Sender() <! Response (Some value)
+                                    mailbox.Sender() <! Response (Some kv)
                                 | false ->
                                     failwith "Processing collection already has incomplete element"
-                        | Processed value ->
+                        | Processed kv ->
 //                            logDebugf mailbox $"%A{value} has been processed"
-                            match processing.Remove value with
+                            match processing.Remove kv.Key with
                             | true when
                                 incomplete.Count < 1 &&
                                 processing.Count < 1 ->
-                                complete.Add (Some value)
+                                complete.Add (Some kv)
                                 complete.Add (None)
                             | true when
                                 incomplete.Count > 0 ||
                                 processing.Count > 0 ->
-                                complete.Add (Some value)
+                                complete.Add (Some kv)
                             | _ ->
 //                                logDebugf mailbox $"Failed to remove %A{value} from the processing collection"
                                 ()
                         return! iterate incomplete processing                       
                     }
-                    iterate (Queue<_>([| for idx in 1..100 do yield idx |])) (HashSet<_>()))
+                    iterate (Queue<_>([| for idx in 1..100 do yield KeyValuePair(idx, idx) |])) (Dictionary<_, _>()))
                 [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]    
         let workers =
             [for idx in 1..10 do
@@ -76,10 +76,10 @@ module AkkaCoordinator =
                             match! mailbox.Receive() with
                             | Response response ->
                                 match response with
-                                | Some value ->
+                                | Some kv ->
 //                                    logDebugf mailbox $"Processing value %A{value}"
                                     Async.Sleep (Random().Next(1000, 10_000)) |> Async.RunSynchronously
-                                    coordinator <! Processed value
+                                    coordinator <! Processed kv
                                     coordinator <! Request
                                     return! iterate ()
                                 | None ->

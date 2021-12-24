@@ -9,8 +9,8 @@ module AkkaCoordinator =
     open Akka.FSharp
     
     type CoordinatorMessage =
-        // TODO: Add a Return of int for failed work!
         | Request
+        | Return    of KeyValuePair<int, int>
         | Processed of KeyValuePair<int, int>
         
     type WorkerMessage =
@@ -30,6 +30,7 @@ module AkkaCoordinator =
         let system = System.create systemName (Configuration.parse config)
         
         let complete = new BlockingCollection<_>(ConcurrentQueue())
+        
         let coordinator = 
             spawnOpt system coordinatorName
                 (fun (mailbox: Actor<CoordinatorMessage>) ->
@@ -46,9 +47,13 @@ module AkkaCoordinator =
                                 let kv = incomplete.Dequeue()
                                 match processing.TryAdd (kv.Key, kv.Value) with
                                 | true ->
-                                    mailbox.Sender() <! Response (Some kv)
+                                    ()
                                 | false ->
-                                    failwith "Processing collection already has incomplete element"
+//                                    logDebugf mailbox $"Work %A{kv.Key} is already in processing queue, which means processing it had failed previously"
+                                    ()
+                                mailbox.Sender() <! Response (Some kv)
+                        | Return kv ->
+                            incomplete.Enqueue kv
                         | Processed kv ->
 //                            logDebugf mailbox $"%A{value} has been processed"
                             match processing.Remove kv.Key with
@@ -68,6 +73,7 @@ module AkkaCoordinator =
                     }
                     iterate (Queue<_>([| for idx in 1..100 do yield KeyValuePair(idx, idx) |])) (Dictionary<_, _>()))
                 [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]    
+        
         let workers =
             [for idx in 1..10 do
                 spawnOpt system (workerName idx)
@@ -78,9 +84,19 @@ module AkkaCoordinator =
                                 match response with
                                 | Some kv ->
 //                                    logDebugf mailbox $"Processing value %A{value}"
-                                    Async.Sleep (Random().Next(1000, 10_000)) |> Async.RunSynchronously
-                                    coordinator <! Processed kv
-                                    coordinator <! Request
+                                    match (Random().Next(0, 2)) with
+                                    | value when value = 0 -> 
+                                        Async.Sleep (Random().Next(1_000, 10_000)) |> Async.RunSynchronously
+                                        coordinator <! Processed kv
+                                        coordinator <! Request
+                                    | value when value = 1 ->
+                                        // Simulating a failure to process the work.
+                                        Async.Sleep (Random().Next(5_000, 10_000)) |> Async.RunSynchronously
+//                                        logDebugf mailbox $"Processing %A{kv.Key} failed - sending it back to the coordinator"
+                                        coordinator <! Return kv
+                                        coordinator <! Request
+                                    | _ ->
+                                        ()
                                     return! iterate ()
                                 | None ->
 //                                  // Terminal state - we've received poison-pill so time to shut down.

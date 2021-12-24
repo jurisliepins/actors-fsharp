@@ -30,19 +30,20 @@ module AkkaCoordinator =
 
         let system = System.create systemName (Configuration.parse config)
         
+        let complete = new BlockingCollection<_>(ConcurrentQueue())
         let coordinator = 
             spawnOpt system coordinatorName
                 (fun (mailbox: Actor<CoordinatorMessage<int>>) ->
                     let rec iterate (incomplete: ConcurrentBag<_>) (processing: ConcurrentSet<_>) = actor {
                         match! mailbox.Receive() with
                         | Request request ->
-                            logDebugf mailbox $"Request from %A{request}"
+//                            logDebugf mailbox $"Request from %A{request}"
                             match request with
                             | _ when incomplete.IsEmpty ->
-                                logDebugf mailbox "Incomplete collection empty - taking from processing items"
+//                                logDebugf mailbox "Incomplete collection empty - taking from processing items"
                                 mailbox.Sender() <! Response (Seq.tryHead processing)
                             | _ ->
-                                logDebugf mailbox "Taking from incomplete collection"
+//                                logDebugf mailbox "Taking from incomplete collection"
                                 match incomplete.TryTake() with
                                 | true, value ->
                                     match processing.TryAdd value with
@@ -53,8 +54,20 @@ module AkkaCoordinator =
                                 | _ ->
                                     mailbox.Sender() <! Response None
                         | Processed value ->
-                            logDebugf mailbox $"%A{value} has been processed"
-                            processing.TryRemove value |> ignore
+//                            logDebugf mailbox $"%A{value} has been processed"
+                            match processing.TryRemove value with
+                            | true when
+                                incomplete.IsEmpty &&
+                                processing.IsEmpty ->
+                                complete.Add (Some value)
+                                complete.Add None 
+                            | true when
+                                not incomplete.IsEmpty ||
+                                not processing.IsEmpty ->
+                                complete.Add (Some value)
+                            | _ ->
+//                                logDebugf mailbox $"Failed to remove %A{value} from the processing collection"
+                                ()
                         return! iterate incomplete processing                       
                     }
                     iterate (ConcurrentBag<_>([| for idx in 1..10 do yield idx |])) (ConcurrentSet<_>()))
@@ -68,17 +81,28 @@ module AkkaCoordinator =
                             | Response response ->
                                 match response with
                                 | Some value ->
-                                    logDebugf mailbox $"Processing value %A{value}"
+//                                    logDebugf mailbox $"Processing value %A{value}"
                                     Async.Sleep 5000 |> Async.RunSynchronously
                                     coordinator <! Processed value
                                     coordinator <! Request idx
                                 | None ->
-                                    logDebugf mailbox "Done"
+//                                    logDebugf mailbox "Done"
+                                    ()
                             return! iterate ()
                         }
                         iterate (coordinator <! Request idx))
                     [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]
             ]
+        let rec take () = seq {
+            match complete.Take() with
+            | Some value ->
+                yield  value
+                yield! take ()
+            | None ->
+                printfn "Take done"
+        }
+        for value in take () do
+            printfn $"Completed %A{value}"  
         
         Console.ReadKey() |> ignore
         0

@@ -1,6 +1,8 @@
 ﻿namespace Actors.FSharp
 
 open System
+open System.Collections
+open System.Collections.Generic
 open System.Collections.Concurrent
 open Akka.Actor
 open Akka.Util
@@ -13,8 +15,7 @@ module AkkaCoordinator =
         | Processed of 'a
         
     type WorkerMessage<'a> =
-        | Response of 'a
-        | ResponsePriority of 'a
+        | Response of 'a option
     
     let run () =
         let baseName = "akka-coordinator-fsharp"
@@ -32,54 +33,50 @@ module AkkaCoordinator =
         let coordinator = 
             spawnOpt system coordinatorName
                 (fun (mailbox: Actor<CoordinatorMessage<int>>) ->
-                    let rec iterate (incomplete: ConcurrentBag<_>) (complete: ConcurrentBag<_>) = actor {
+                    let rec iterate (incomplete: ConcurrentBag<_>) (processing: ConcurrentSet<_>) = actor {
                         match! mailbox.Receive() with
                         | Request request ->
-                            logDebugf mailbox $"Request %A{request}"
+                            logDebugf mailbox $"Request from %A{request}"
                             match request with
-                            | _ when incomplete.Count < complete.Count ->
-                                for value in incomplete do
-                                    mailbox.Sender() <! ResponsePriority (Some value)
-                            | _ -> 
+                            | _ when incomplete.IsEmpty ->
+                                logDebugf mailbox "Incomplete collection empty - taking from processing items"
+                                mailbox.Sender() <! Response (Seq.tryHead processing)
+                            | _ ->
+                                logDebugf mailbox "Taking from incomplete collection"
                                 match incomplete.TryTake() with
                                 | true, value ->
-                                    mailbox.Sender() <! Response (Some value)
+                                    match processing.TryAdd value with
+                                    | true -> 
+                                        mailbox.Sender() <! Response (Some value)
+                                    | false ->
+                                        failwith "Failed to add work to the processing collection"
                                 | _ ->
-                                    logDebugf mailbox $"Nothing to take"
+                                    mailbox.Sender() <! Response None
                         | Processed value ->
-                            logDebugf mailbox $"Processed %A{mailbox.Sender().Path} %A{value}"
-                            complete.Add value
-                        return! iterate incomplete complete                       
+                            logDebugf mailbox $"%A{value} has been processed"
+                            processing.TryRemove value |> ignore
+                        return! iterate incomplete processing                       
                     }
-                    iterate (ConcurrentBag<_>([| for idx in 1..10 do yield idx |])) (ConcurrentBag<_>()))
+                    iterate (ConcurrentBag<_>([| for idx in 1..10 do yield idx |])) (ConcurrentSet<_>()))
                 [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]    
         let workers =
             [for idx in 1..5 do
                 spawnOpt system (workerName idx)
-                    (fun (mailbox: Actor<WorkerMessage<int option>>) ->
-                        // TODO: Figure out how to short-circuit when a different worker already processed the same work! 
+                    (fun (mailbox: Actor<WorkerMessage<int>>) ->
                         let rec iterate () = actor {
                             match! mailbox.Receive() with
                             | Response response ->
                                 match response with
                                 | Some value ->
-                                    logDebugf mailbox $"Response %A{value}"
-                                    Async.Sleep 1000 |> Async.RunSynchronously
+                                    logDebugf mailbox $"Processing value %A{value}"
+                                    Async.Sleep 5000 |> Async.RunSynchronously
                                     coordinator <! Processed value
-                                    coordinator <! Request 2
+                                    coordinator <! Request idx
                                 | None ->
-                                    logDebugf mailbox $"Done"
-                            | ResponsePriority response ->
-                                match response with
-                                | Some value ->
-                                    logDebugf mailbox $"Response priority %A{value}"
-                                    Async.Sleep 1000 |> Async.RunSynchronously
-                                    coordinator <! Processed value
-                                | None ->
-                                    logDebugf mailbox $"Done priority"
+                                    logDebugf mailbox "Done"
                             return! iterate ()
                         }
-                        iterate (coordinator <! Request 0))
+                        iterate (coordinator <! Request idx))
                     [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]
             ]
         

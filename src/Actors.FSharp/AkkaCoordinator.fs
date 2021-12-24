@@ -4,10 +4,10 @@ open System
 open System.Collections.Concurrent
 open System.Collections.Generic
 open Akka.Actor
+open Akka.FSharp
 
 module AkkaCoordinator =
-    open Akka.FSharp
-    
+
     type CoordinatorMessage =
         | Request
         | Return    of KeyValuePair<int, int>

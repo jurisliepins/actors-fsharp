@@ -4,10 +4,10 @@ open System
 open System.Collections.Concurrent
 open System.Collections.Generic
 
-type Queue<'a>(collection: ICollection<_>) =
+type Channel<'a>(collection: ICollection<_>) =
     let queue = ConcurrentQueue<_>(collection)
     
-    new() = Queue([||])
+    new() = Channel([||])
     
     member _.Push(value: 'a) : unit = queue.Enqueue value
     member _.Pull() : 'a option = match queue.TryDequeue() with true, value -> Some value | _ -> None

@@ -2,13 +2,14 @@
 
 open System
 open System.Collections.Concurrent
+open System.Collections.Generic
 open Akka.Actor
-open Akka.Util
 
 module AkkaCoordinator =
     open Akka.FSharp
     
     type CoordinatorMessage =
+        // TODO: Add a Return of int for failed work!
         | Request
         | Processed of int
         
@@ -32,43 +33,40 @@ module AkkaCoordinator =
         let coordinator = 
             spawnOpt system coordinatorName
                 (fun (mailbox: Actor<CoordinatorMessage>) ->
-                    let rec iterate (incomplete: ConcurrentBag<_>) (processing: ConcurrentSet<_>) = actor {
+                    let rec iterate (incomplete: Queue<_>) (processing: HashSet<_>) = actor {
                         match! mailbox.Receive() with
                         | Request _ ->
 //                            logDebugf mailbox $"Request from %A{request}"
                             match incomplete with
-                            | _ when incomplete.IsEmpty ->
+                            | _ when incomplete.Count < 1 ->
 //                                logDebugf mailbox "Incomplete collection empty - taking from processing items"
                                 mailbox.Sender() <! Response (Seq.tryHead processing)
                             | _ ->
 //                                logDebugf mailbox "Taking from incomplete collection"
-                                match incomplete.TryTake() with
-                                | true, value ->
-                                    match processing.TryAdd value with
-                                    | true -> 
-                                        mailbox.Sender() <! Response (Some value)
-                                    | false ->
-                                        failwith "Failed to add work to the processing collection"
-                                | _ ->
-                                    failwith "Failed to take value from incomplete collection"
+                                let value = incomplete.Dequeue()
+                                match processing.Add value with
+                                | true ->
+                                    mailbox.Sender() <! Response (Some value)
+                                | false ->
+                                    failwith "Processing collection already has incomplete element"
                         | Processed value ->
 //                            logDebugf mailbox $"%A{value} has been processed"
-                            match processing.TryRemove value with
+                            match processing.Remove value with
                             | true when
-                                incomplete.IsEmpty &&
-                                processing.IsEmpty ->
+                                incomplete.Count < 1 &&
+                                processing.Count < 1 ->
                                 complete.Add (Some value)
-                                complete.Add None
+                                complete.Add (None)
                             | true when
-                                not incomplete.IsEmpty ||
-                                not processing.IsEmpty ->
+                                incomplete.Count > 0 ||
+                                processing.Count > 0 ->
                                 complete.Add (Some value)
                             | _ ->
 //                                logDebugf mailbox $"Failed to remove %A{value} from the processing collection"
                                 ()
                         return! iterate incomplete processing                       
                     }
-                    iterate (ConcurrentBag<_>([| for idx in 1..100 do yield idx |])) (ConcurrentSet<_>()))
+                    iterate (Queue<_>([| for idx in 1..100 do yield idx |])) (HashSet<_>()))
                 [ SpawnOption.SupervisorStrategy (Strategy.OneForOne (fun _ -> Directive.Stop)) ]    
         let workers =
             [for idx in 1..10 do

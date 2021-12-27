@@ -32,7 +32,7 @@ module AkkaRemoteDeployment =
                         }
                         iterate ()
                     ) @>
-                [SpawnOption.Deploy (Deploy (RemoteScope (Address.Parse "akka.tcp://akka-remote-system@localhost:9001/")))]
+                [SpawnOption.Deploy (Deploy (RemoteScope (Address.Parse "akka.tcp://akka-remote-system@localhost:9001/"))) ] // Alternatively - (Deploy (Scope.Local)).
         rref <! "Hello, remote world!"
 
         let sref = select "akka://akka-local-system/user/akka-remote-actor" system  

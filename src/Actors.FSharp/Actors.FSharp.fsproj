@@ -8,13 +8,14 @@
     <ItemGroup>
         <Compile Include="Vanilla.fs" />
         <Compile Include="Akka.fs" />
-        <Compile Include="AkkaCoordinator.fs" />
+        <Compile Include="AkkaRemoteDeployment.fs" />
         <Compile Include="AkkaTcp.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Akka.FSharp" Version="1.4.29" />
+      <PackageReference Include="Akka.Remote" Version="1.4.31" />
     </ItemGroup>
 
 </Project>
